@@ -205,7 +205,7 @@
                 type="text"
                 id="articleNoInput"
                 placeholder="매물번호 10자리 입력 (예: 2649318424)"
-                value="2649318424"
+                value=""
                 class="w-full pl-10 pr-4 py-3 text-sm sm:text-base rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:border-transparent bg-slate-50 focus:bg-white transition-all shadow-inner"
                 required
               />
@@ -659,8 +659,9 @@
           mainDashboard.classList.remove('hidden');
           mainDashboard.classList.add('flex', 'fade-in');
           
-          // 기본 매물 1회 자동 로드
-          fetchBriefing(articleInput.value);
+          // 매물번호 입력창 초기화 및 자동 포커스 (기존 번호 자동 입력 제거)
+          articleInput.value = "";
+          articleInput.focus();
         }, 280);
 
       } else {
@@ -679,7 +680,8 @@
         authScreen.classList.add('hidden');
         mainDashboard.classList.remove('hidden');
         mainDashboard.classList.add('flex');
-        fetchBriefing(articleInput.value);
+        articleInput.value = "";
+        articleInput.focus();
       } else {
         authPasswordInput.focus();
       }
