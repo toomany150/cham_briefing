@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VIP 부동산 매물 현장 브리핑 시스템</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              200: '#bfdbfe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#18345E', // 고품격 네이비
+              950: '#0f172a'
+            }
+          },
+          fontFamily: {
+            sans: ['Pretendard', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- 웹 폰트 (Pretendard) -->
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+
+  <!-- A4 인쇄 최적화 스타일 (@media print) -->
+  <style>
+    @media print {
+      .no-print {
+        display: none !important;
+      }
+      body {
+        background-color: #ffffff !important;
+        font-size: 11pt !important;
+        color: #111827 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      .print-container {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      .print-avoid-break {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      .card-box {
+        box-shadow: none !important;
+        border: 1px solid #cbd5e1 !important;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 12mm 10mm 12mm 10mm;
+      }
+    }
+
+    /* 부드러운 전환 애니메이션 */
+    .fade-in {
+      animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .fade-out {
+      animation: fadeOut 0.3s ease-out forwards;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeOut {
+      from { opacity: 1; transform: scale(1); }
+      to { opacity: 0; transform: scale(0.96); visibility: hidden; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans min-h-screen flex flex-col antialiased">
+
+  <!-- ========================================================================= -->
+  <!-- 0. [보안 인증 게이트 화면 (비밀번호: 4989)] -->
+  <!-- 접속 시 오직 이 화면만 중앙에 뜨며, 4989 입력 전에는 대시보드가 노출되지 않습니다. -->
+  <!-- ========================================================================= -->
+  <div id="authScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-md px-4 no-print">
+    <div class="bg-white w-full max-w-sm sm:max-w-md rounded-3xl shadow-2xl border border-slate-100 p-7 sm:p-9 text-center transform transition-all">
+      
+      <!-- 보안 아이콘 -->
+      <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-brand-50 border border-brand-200 text-brand-700 flex items-center justify-center text-3xl shadow-inner">
+        🔒
+      </div>
+
+      <div class="mb-6">
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-bold text-brand-700 bg-brand-50 border border-brand-200 mb-2">
+          {{ realtor.name }} 관계자 인증
+        </span>
+        <h2 class="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+          비밀번호를 입력하세요
+        </h2>
+        <p class="text-xs sm:text-sm text-slate-500 mt-1.5">
+          실시간 부동산 매물 브리핑 시스템에 접속하기 위한 인증 번호를 입력해 주세요.
+        </p>
+      </div>
+
+      <!-- 비밀번호 입력 폼 -->
+      <form id="authForm" class="space-y-4">
+        <div class="relative">
+          <input
+            type="password"
+            id="authPasswordInput"
+            placeholder="접속 비밀번호 (4자리)"
+            maxlength="10"
+            class="w-full px-4 py-3.5 text-center text-xl sm:text-2xl font-bold tracking-widest rounded-2xl border-2 border-slate-200 focus:outline-none focus:border-brand-700 focus:ring-4 focus:ring-brand-100 bg-slate-50 focus:bg-white transition-all shadow-inner"
+            autocomplete="current-password"
+            required
+            autofocus
+          />
+        </div>
+
+        <button
+          type="submit"
+          id="authSubmitBtn"
+          class="w-full py-3.5 bg-brand-900 hover:bg-brand-800 text-white font-bold rounded-2xl transition-all shadow-md hover:shadow-lg active:scale-98 text-base flex items-center justify-center gap-2"
+        >
+          <span>접속하기</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14 5l7 7m0 0l-7 7m7-7H3"/>
+          </svg>
+        </button>
+      </form>
+
+      <!-- 중개사 정보 푸터 -->
+      <div class="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-400 flex items-center justify-between">
+        <span>{{ realtor.representative }} 공인중개사</span>
+        <span>문의 ☎ {{ realtor.tel }}</span>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ========================================================================= -->
+  <!-- 1. 메인 서비스 영역 (인증 성공 시 부드럽게 나타남) -->
+  <!-- ========================================================================= -->
+  <div id="mainDashboard" class="hidden flex-col min-h-screen">
+
+    <!-- [헤더: 공인중개사 브랜드 바] -->
+    <header class="bg-brand-900 text-white shadow-md border-b border-blue-950 no-print">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-inner font-bold text-lg">
+            🏢
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h1 class="text-base sm:text-lg font-bold tracking-tight text-white">{{ realtor.name }}</h1>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-blue-800 text-blue-200 border border-blue-700">VIP 브리핑</span>
+            </div>
+            <p class="text-xs text-blue-200">"{{ realtor.slogan }}" · 대표 공인중개사 {{ realtor.representative }}</p>
+          </div>
+        </div>
+        <div class="text-xs text-blue-200 flex items-center gap-4">
+          <span><strong class="text-white">문의:</strong> ☎ {{ realtor.tel }}</span>
+          <span class="hidden md:inline">|</span>
+          <span class="hidden md:inline"><strong class="text-white">등록번호:</strong> {{ realtor.reg_no }}</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- [메인 컨텐츠 영역] -->
+    <main class="flex-grow max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 print-container">
+
+      <!-- ===================================================================== -->
+      <!-- [메인 검색창 UI] 화면 중앙에 직관적으로 배치 -->
+      <!-- ===================================================================== -->
+      <section id="searchSection" class="no-print bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-7 mb-6">
+        <div class="max-w-2xl mx-auto text-center">
+          <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-200 mb-2.5">
+            실시간 네이버 부동산 데이터 연동
+          </span>
+          <h2 class="text-xl sm:text-2xl font-bold text-slate-900 mb-2">
+            부동산 매물 브리핑 실시간 조회
+          </h2>
+          <p class="text-xs sm:text-sm text-slate-500 mb-6">
+            매물번호 10자리(또는 네이버 부동산 URL)를 입력하시면 권리분석 및 맞춤형 브리핑이 즉시 생성됩니다.
+          </p>
+
+          <!-- 입력 폼 -->
+          <form id="searchForm" class="flex flex-col sm:flex-row gap-2.5 items-stretch">
+            <div class="relative flex-grow">
+              <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+              </div>
+              <input
+                type="text"
+                id="articleNoInput"
+                placeholder="매물번호 10자리 입력 (예: 2649318424)"
+                value="2649318424"
+                class="w-full pl-10 pr-4 py-3 text-sm sm:text-base rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:border-transparent bg-slate-50 focus:bg-white transition-all shadow-inner"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              id="searchBtn"
+              class="px-6 py-3 bg-brand-700 hover:bg-brand-800 text-white font-semibold rounded-xl transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 text-sm sm:text-base shrink-0 active:scale-95"
+            >
+              <span id="btnText">브리핑 조회하기</span>
+              <svg id="btnSpinner" class="hidden w-5 h-5 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </button>
+          </form>
+
+          <!-- 샘플 매물 빠른 선택 칩 -->
+          <div class="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
+            <span class="font-medium text-slate-400">빠른 테스트 샘플:</span>
+            <button type="button" class="sample-chip px-2.5 py-1 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 rounded-md border border-slate-200 transition-colors" data-no="2649318424">
+              삼정그린코아 103동 (매매 4.8억)
+            </button>
+            <button type="button" class="sample-chip px-2.5 py-1 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 rounded-md border border-slate-200 transition-colors" data-no="2650717046">
+              시민공원삼정 101동
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 에러 알림 배너 -->
+      <div id="errorAlert" class="hidden no-print mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <svg class="w-5 h-5 text-red-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+          </svg>
+          <span id="errorMessage">매물 정보를 불러오는데 실패하였습니다.</span>
+        </div>
+        <button onclick="document.getElementById('errorAlert').classList.add('hidden')" class="text-red-400 hover:text-red-700 font-bold">&times;</button>
+      </div>
+
+      <!-- 안내 메시지 (대체 데이터 알림 등) -->
+      <div id="noticeAlert" class="hidden no-print mb-4 p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs flex items-center justify-between">
+        <span id="noticeText"></span>
+        <button onclick="document.getElementById('noticeAlert').classList.add('hidden')" class="text-blue-500 font-bold">&times;</button>
+      </div>
+
+      <!-- ===================================================================== -->
+      <!-- [브리핑 뷰어 (반응형 결과 화면)] -->
+      <!-- PC에서는 다단 표 형식, 모바일에서는 한눈에 들어오는 세로형 카드 자동 적응 -->
+      <!-- ===================================================================== -->
+      <div id="briefingContainer" class="hidden fade-in space-y-6">
+
+        <!-- 인쇄용 헤더 (A4 인쇄 시 상단에 표시) -->
+        <div class="hidden print:block border-b-2 border-brand-900 pb-3 mb-4">
+          <div class="flex justify-between items-end">
+            <div>
+              <span class="text-xs text-blue-700 font-bold">★ {{ realtor.slogan }} · VIP 고객 단독 매물 브리핑</span>
+              <h1 id="printComplexTitle" class="text-2xl font-black text-slate-900 mt-1"></h1>
+            </div>
+            <div class="text-right text-xs">
+              <div class="font-bold text-slate-800">{{ realtor.name }} (☎ {{ realtor.tel }})</div>
+              <div class="text-slate-500">담당 공인중개사: {{ realtor.representative }} | 출력일자: <span id="printDate"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 상단 액션 툴바 (내보내기 / 공유 / 인쇄 버튼) -->
+        <div class="no-print bg-white rounded-xl shadow-sm border border-slate-200 p-3 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div class="flex items-center gap-2 self-start sm:self-center">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="text-xs font-semibold text-slate-700">매물 브리핑 리포트</span>
+            <span id="badgeConfirmDate" class="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200"></span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+            <!-- 카카오톡 / 링크 복사 버튼 -->
+            <button
+              id="shareKakaoBtn"
+              type="button"
+              class="flex-1 sm:flex-initial px-3.5 py-2 bg-amber-400 hover:bg-amber-500 text-amber-950 font-semibold text-xs sm:text-sm rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 3c-5.52 0-10 3.58-10 8 0 2.82 1.83 5.3 4.63 6.74-.2.72-.73 2.62-.84 3.03-.13.52.19.51.4.37.16-.11 2.22-1.52 3.12-2.14.88.13 1.78.2 2.69.2 5.52 0 10-3.58 10-8s-4.48-8-10-8z"/>
+              </svg>
+              <span>카톡 요약 복사</span>
+            </button>
+
+            <!-- PDF (A4 비율) 인쇄 버튼 -->
+            <button
+              id="printBtn"
+              type="button"
+              class="flex-1 sm:flex-initial px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs sm:text-sm rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+              </svg>
+              <span>PDF (A4) 인쇄</span>
+            </button>
+
+            <!-- PPT 파일 다운로드 버튼 (선택 기능) -->
+            <a
+              id="pptDownloadLink"
+              href="#"
+              target="_blank"
+              class="px-3.5 py-2 bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 font-semibold text-xs sm:text-sm rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              <span class="hidden sm:inline">PPT 다운로드</span>
+              <span class="sm:hidden">PPT</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- =================================================================== -->
+        <!-- 카드 1: 핵심 매물 헤드라인 요약 (Hero Card) -->
+        <!-- =================================================================== -->
+        <section class="card-box bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden print-avoid-break">
+          <div class="bg-gradient-to-r from-brand-900 to-slate-800 p-5 sm:p-6 text-white">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div class="flex items-center gap-2 mb-1.5">
+                  <span id="badgeTradeType" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-600 text-white shadow-sm">매매</span>
+                  <span id="badgeBuilding" class="text-xs sm:text-sm text-blue-200"></span>
+                  <span class="text-blue-300">·</span>
+                  <span id="badgeFloor" class="text-xs sm:text-sm text-blue-200"></span>
+                </div>
+                <h2 id="heroComplexName" class="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight text-white"></h2>
+                <p id="heroAddress" class="text-xs sm:text-sm text-blue-200 mt-1 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                  <span></span>
+                </p>
+              </div>
+
+              <!-- 가격 블록 -->
+              <div class="bg-white/10 backdrop-blur-sm px-4 py-3 rounded-xl border border-white/20 text-left sm:text-right shrink-0">
+                <span class="text-xs font-medium text-blue-200">희망 매매가</span>
+                <div id="heroPrice" class="text-2xl sm:text-3xl font-extrabold text-amber-300 tracking-tight"></div>
+                <div id="heroPyPrice" class="text-xs text-blue-100 font-semibold mt-0.5"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 핵심 배지 그리드 (모바일 2열, PC 4열) -->
+          <div class="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-slate-100 bg-slate-50 border-t border-slate-200">
+            <div class="p-3.5 sm:p-4 text-center">
+              <span class="text-xs text-slate-500 font-medium">전용 / 공급면적</span>
+              <div id="badgeSpace" class="text-sm sm:text-base font-bold text-slate-800 mt-0.5">-</div>
+            </div>
+            <div class="p-3.5 sm:p-4 text-center">
+              <span class="text-xs text-slate-500 font-medium">실투자금(갭)</span>
+              <div id="badgeGapInvest" class="text-sm sm:text-base font-bold text-red-600 mt-0.5">-</div>
+            </div>
+            <div class="p-3.5 sm:p-4 text-center">
+              <span class="text-xs text-slate-500 font-medium">구조 / 방수·욕실</span>
+              <div id="badgeRoom" class="text-sm sm:text-base font-bold text-slate-800 mt-0.5">-</div>
+            </div>
+            <div class="p-3.5 sm:p-4 text-center">
+              <span class="text-xs text-slate-500 font-medium">입주 가능 시기</span>
+              <div id="badgeMoveIn" class="text-sm sm:text-base font-bold text-brand-700 mt-0.5">-</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- 카드 2 & 카드 3: 매물 상세 제원표 & 단지 종합 제원 (PC 다단 그리드) -->
+        <!-- =================================================================== -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 print-avoid-break">
+          
+          <!-- [좌측] 매물 상세 제원표 (Spec Table) -->
+          <section class="card-box bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+            <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+              <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                <span class="w-2 h-4 bg-brand-700 rounded-full"></span>
+                📋 매물 상세 핵심 제원
+              </h3>
+              <span id="specArticleNo" class="text-xs text-slate-400 font-mono"></span>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs sm:text-sm text-left">
+                <tbody class="divide-y divide-slate-100">
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50 w-28 sm:w-36 rounded-l">공급 / 전용면적</th>
+                    <td id="tblSpace" class="py-2.5 px-3 text-slate-800 font-medium"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50">전용률 / 평형타입</th>
+                    <td id="tblType" class="py-2.5 px-3 text-slate-800 font-medium"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50">해당동 / 층수</th>
+                    <td id="tblFloor" class="py-2.5 px-3 text-slate-800 font-medium"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50">방향 / 현관구조</th>
+                    <td id="tblDirection" class="py-2.5 px-3 text-slate-800 font-medium"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50">방 수 / 욕실 수</th>
+                    <td id="tblRoomCount" class="py-2.5 px-3 text-slate-800 font-medium"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50">난방 방식</th>
+                    <td id="tblHeat" class="py-2.5 px-3 text-slate-800 font-medium"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50">내부 특징/옵션</th>
+                    <td id="tblFeature" class="py-2.5 px-3 text-brand-700 font-semibold"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50 rounded-l">확인 일자</th>
+                    <td id="tblConfirmDate" class="py-2.5 px-3 text-slate-500 font-mono"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- [우측] 단지 종합 제원 & 주차/학군 -->
+          <section class="card-box bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+            <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+              <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                <span class="w-2 h-4 bg-emerald-600 rounded-full"></span>
+                🏢 소속 단지 기본 제원
+              </h3>
+              <span class="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">단지 공통</span>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs sm:text-sm text-left">
+                <tbody class="divide-y divide-slate-100">
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50 w-28 sm:w-36 rounded-l">총 세대수 / 동수</th>
+                    <td id="tblTotalHouseholds" class="py-2.5 px-3 text-slate-800 font-medium"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50">준공년월 (연식)</th>
+                    <td id="tblApproveDate" class="py-2.5 px-3 text-slate-800 font-medium"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50">총 주차대수</th>
+                    <td id="tblParking" class="py-2.5 px-3 text-slate-800 font-medium"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50">건설 시공사</th>
+                    <td id="tblBuilder" class="py-2.5 px-3 text-slate-800 font-medium"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50">배정 초등학교</th>
+                    <td id="tblSchool" class="py-2.5 px-3 text-emerald-700 font-bold"></td>
+                  </tr>
+                  <tr class="hover:bg-slate-50/50">
+                    <th class="py-2.5 px-3 font-semibold text-slate-600 bg-slate-50 rounded-l">세대 구성 비율</th>
+                    <td id="tblPyeongRatio" class="py-2.5 px-3 text-slate-600 text-xs"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- =================================================================== -->
+        <!-- 카드 4: 🛡️ 권리 분석 요약 & 안전 거래 체크리스트 -->
+        <!-- =================================================================== -->
+        <section class="card-box bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6 print-avoid-break">
+          <div class="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+            <div class="flex items-center gap-2">
+              <span class="w-8 h-8 rounded-lg bg-blue-100 text-brand-700 flex items-center justify-center font-bold">🛡️</span>
+              <div>
+                <h3 class="text-base sm:text-lg font-bold text-slate-900">부동산 권리분석 및 거래 안전성 점검</h3>
+                <p class="text-xs text-slate-500">등기부 권리 상태 및 공인중개사 사전 검증 가이드</p>
+              </div>
+            </div>
+            <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+              보안 점검: 정상(A등급)
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <span class="text-xs font-semibold text-brand-700 block mb-1">01. 소유권 상태</span>
+              <p id="rightsOwnership" class="text-xs text-slate-700 font-medium"></p>
+            </div>
+            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <span class="text-xs font-semibold text-brand-700 block mb-1">02. 근저당권 확인</span>
+              <p id="rightsMortgage" class="text-xs text-slate-700 font-medium"></p>
+            </div>
+            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <span class="text-xs font-semibold text-brand-700 block mb-1">03. 임대차 리스크</span>
+              <p id="rightsLease" class="text-xs text-slate-700 font-medium"></p>
+            </div>
+          </div>
+
+          <div class="bg-blue-50/50 rounded-xl p-4 border border-blue-100">
+            <h4 class="text-xs font-bold text-brand-900 mb-2.5 flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-brand-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+              </svg>
+              공인중개사 필수 안심 거래 체크리스트 (5단계)
+            </h4>
+            <ul id="rightsChecklist" class="space-y-1.5 text-xs text-slate-700"></ul>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- 카드 5: 🌟 입지 환경 & 3대 개발 호재 분석 -->
+        <!-- =================================================================== -->
+        <section class="card-box bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6 print-avoid-break">
+          <div class="pb-3 mb-4 border-b border-slate-100">
+            <h3 class="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+              <span class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">🌟</span>
+              입지 환경 분석 & 미래 가치 (3대 개발 호재)
+            </h3>
+            <p class="text-xs text-slate-500">학군 · 교통 · 생활 인프라 및 동남권 핵심 개발 프로젝트</p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+              <div class="text-emerald-700 font-bold text-sm mb-1.5 flex items-center gap-1.5">
+                <span>🎓</span> <span id="infraSchoolTitle"></span>
+              </div>
+              <p id="infraSchoolDesc" class="text-xs text-slate-600 leading-relaxed"></p>
+            </div>
+
+            <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+              <div class="text-blue-700 font-bold text-sm mb-1.5 flex items-center gap-1.5">
+                <span>🚇</span> <span id="infraTrafficTitle"></span>
+              </div>
+              <p id="infraTrafficDesc" class="text-xs text-slate-600 leading-relaxed"></p>
+            </div>
+
+            <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+              <div class="text-purple-700 font-bold text-sm mb-1.5 flex items-center gap-1.5">
+                <span>🛒</span> <span id="infraMarketTitle"></span>
+              </div>
+              <p id="infraMarketDesc" class="text-xs text-slate-600 leading-relaxed"></p>
+            </div>
+          </div>
+
+          <!-- 3대 핵심 개발 호재 -->
+          <div class="bg-gradient-to-br from-brand-50 to-blue-50/40 rounded-xl p-4 sm:p-5 border border-brand-200">
+            <h4 class="text-sm font-bold text-brand-900 mb-3 flex items-center gap-2">
+              <span>🚀</span> 미래 가치 견인 3대 개발 호재 (부산진구 거점)
+            </h4>
+            <div id="devProjectsContainer" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+          </div>
+        </section>
+
+        <!-- =================================================================== -->
+        <!-- 카드 6: 💡 종합 VIP 투자의견 & 공인중개사 명판 -->
+        <!-- =================================================================== -->
+        <section class="card-box bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6 print-avoid-break">
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+            
+            <!-- 추천 포인트 4선 -->
+            <div class="lg:col-span-8">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-xs font-bold px-2 py-0.5 rounded bg-red-100 text-red-700 border border-red-200">종합 투자의견</span>
+                <span class="text-amber-500 font-bold text-sm">★★★★★ (적극 추천 매물)</span>
+              </div>
+              <h3 class="text-base sm:text-lg font-bold text-slate-900 mb-3">
+                전문가 종합 평가 및 매수 포인트
+              </h3>
+              <ul id="recommendList" class="space-y-2 text-xs sm:text-sm text-slate-700"></ul>
+            </div>
+
+            <!-- 공인중개사 명판 -->
+            <div class="lg:col-span-4 bg-slate-50 p-4 sm:p-5 rounded-xl border border-slate-200">
+              <div class="text-xs text-brand-700 font-semibold mb-1">담당 공인중개사</div>
+              <h4 class="text-base font-extrabold text-slate-900">{{ realtor.name }}</h4>
+              <div class="mt-2 space-y-1 text-xs text-slate-600">
+                <p><strong>대표자:</strong> {{ realtor.representative }} 공인중개사</p>
+                <p><strong>대표전화:</strong> <a href="tel:{{ realtor.tel }}" class="text-brand-700 font-bold underline">☎ {{ realtor.tel }}</a></p>
+                <p><strong>등록번호:</strong> {{ realtor.reg_no }}</p>
+                <p><strong>사무소:</strong> {{ realtor.address }}</p>
+              </div>
+              <div class="mt-3 pt-2.5 border-t border-slate-200 text-xs text-brand-800 font-medium">
+                "{{ realtor.slogan }}"
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 인쇄용 하단 안내 -->
+        <div class="hidden print:block text-center text-xs text-slate-400 pt-4 border-t border-slate-200 mt-6">
+          본 브리핑 자료는 네이버 부동산 공시 데이터 및 공인중개사 현장 확인을 바탕으로 작성되었으며, 계약 전 상세 권리관계 및 현장 답사를 권장합니다.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 토스트 알림 컴포넌트 -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
+    <div class="bg-slate-900 text-white text-xs sm:text-sm font-medium px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 border border-slate-700">
+      <span id="toastIcon">✔</span>
+      <span id="toastMessage">클립보드에 복사되었습니다.</span>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 2. 자바스크립트 보안 인증 및 비동기(AJAX) 로직 -->
+  <!-- ========================================================================= -->
+  <script>
+    // 전역 상태 변수
+    let validatedPin = "";
+    let currentBriefingData = null;
+
+    // DOM 캐시: 보안 게이트
+    const authScreen = document.getElementById('authScreen');
+    const authForm = document.getElementById('authForm');
+    const authPasswordInput = document.getElementById('authPasswordInput');
+    const mainDashboard = document.getElementById('mainDashboard');
+
+    // DOM 캐시: 대시보드
+    const searchForm = document.getElementById('searchForm');
+    const articleInput = document.getElementById('articleNoInput');
+    const searchBtn = document.getElementById('searchBtn');
+    const btnText = document.getElementById('btnText');
+    const btnSpinner = document.getElementById('btnSpinner');
+    const briefingContainer = document.getElementById('briefingContainer');
+    const errorAlert = document.getElementById('errorAlert');
+    const errorMessage = document.getElementById('errorMessage');
+    const noticeAlert = document.getElementById('noticeAlert');
+    const noticeText = document.getElementById('noticeText');
+    const toast = document.getElementById('toast');
+    const toastMessage = document.getElementById('toastMessage');
+
+    // =========================================================================
+    // [보안 인증(4989) 처리 로직]
+    // =========================================================================
+    authForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const enteredPin = authPasswordInput.value.trim();
+
+      if (enteredPin === "4989") {
+        // 인증 성공: 전역 변수 저장
+        validatedPin = enteredPin;
+        sessionStorage.setItem("vip_auth_pin", enteredPin);
+
+        // 보안 게이트 부드럽게 닫기
+        authScreen.classList.add('fade-out');
+        setTimeout(() => {
+          authScreen.classList.add('hidden');
+          // 메인 대시보드 화면 표출
+          mainDashboard.classList.remove('hidden');
+          mainDashboard.classList.add('flex', 'fade-in');
+          
+          // 기본 매물 1회 자동 로드
+          fetchBriefing(articleInput.value);
+        }, 280);
+
+      } else {
+        // 인증 실패: 경고창 출력 및 재입력 유도
+        alert("비밀번호가 일치하지 않습니다.");
+        authPasswordInput.value = "";
+        authPasswordInput.focus();
+      }
+    });
+
+    // 브라우저 세션에 기존 인증 내역이 있는지 확인
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedPin = sessionStorage.getItem("vip_auth_pin");
+      if (savedPin === "4989") {
+        validatedPin = savedPin;
+        authScreen.classList.add('hidden');
+        mainDashboard.classList.remove('hidden');
+        mainDashboard.classList.add('flex');
+        fetchBriefing(articleInput.value);
+      } else {
+        authPasswordInput.focus();
+      }
+    });
+
+    // =========================================================================
+    // [대시보드 검색 및 비동기 브리핑 통신]
+    // =========================================================================
+    searchForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const articleNo = articleInput.value.trim();
+      if (!articleNo) return;
+      await fetchBriefing(articleNo);
+    });
+
+    // 빠른 샘플 칩 클릭
+    document.querySelectorAll('.sample-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const no = chip.getAttribute('data-no');
+        articleInput.value = no;
+        fetchBriefing(no);
+      });
+    });
+
+    // 카카오톡 요약 복사
+    document.getElementById('shareKakaoBtn').addEventListener('click', () => {
+      if (!currentBriefingData) return;
+      copyKakaoSummary(currentBriefingData);
+    });
+
+    // PDF(A4) 인쇄
+    document.getElementById('printBtn').addEventListener('click', () => {
+      window.print();
+    });
+
+    // 비동기(AJAX) 매물 조회 함수 (서버 보호용 password 파라미터 전달)
+    async function fetchBriefing(articleNo) {
+      if (!validatedPin) return;
+
+      btnText.textContent = "분석 조회 중...";
+      btnSpinner.classList.remove('hidden');
+      searchBtn.disabled = true;
+      errorAlert.classList.add('hidden');
+      noticeAlert.classList.add('hidden');
+
+      try {
+        // [서버 방어]: URL 쿼리에 password=4989 및 헤더 전달
+        const apiUrl = `/api/briefing?articleNo=${encodeURIComponent(articleNo)}&password=${encodeURIComponent(validatedPin)}`;
+        const response = await fetch(apiUrl, {
+          headers: {
+            "X-Password": validatedPin
+          }
+        });
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || "매물 정보를 불러오는데 실패하였습니다.");
+        }
+
+        currentBriefingData = result.data;
+        renderBriefing(result.data);
+
+        if (result.notice) {
+          noticeText.textContent = result.notice;
+          noticeAlert.classList.remove('hidden');
+        }
+
+        briefingContainer.classList.remove('hidden');
+        briefingContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        // PPT 다운로드 링크에도 비밀번호 포함
+        document.getElementById('pptDownloadLink').href = `/api/download-ppt?articleNo=${encodeURIComponent(articleNo)}&password=${encodeURIComponent(validatedPin)}`;
+
+      } catch (err) {
+        errorMessage.textContent = err.message;
+        errorAlert.classList.remove('hidden');
+      } finally {
+        btnText.textContent = "브리핑 조회하기";
+        btnSpinner.classList.add('hidden');
+        searchBtn.disabled = false;
+      }
+    }
+
+    // 결과 화면 렌더링
+    function renderBriefing(data) {
+      document.getElementById('printComplexTitle').textContent = `${data['단지명']} ${data['해당동']} (${data['거래유형']} ${data['희망가격']})`;
+      document.getElementById('printDate').textContent = new Date().toLocaleDateString('ko-KR');
+
+      document.getElementById('badgeConfirmDate').textContent = `확인일자: ${data['확인일자'] || '-'}`;
+      document.getElementById('badgeTradeType').textContent = data['거래유형'] || '매매';
+      document.getElementById('badgeBuilding').textContent = data['해당동'] || '-';
+      document.getElementById('badgeFloor').textContent = data['해당층'] || '-';
+
+      document.getElementById('heroComplexName').textContent = `${data['단지명']} ${data['해당동']}`;
+      document.querySelector('#heroAddress span').textContent = data['소재지'] || '-';
+      document.getElementById('heroPrice').textContent = data['희망가격'] || '-';
+      document.getElementById('heroPyPrice').textContent = data['평당가격'] || '';
+
+      document.getElementById('badgeSpace').textContent = `${data['전용면적']} / ${data['공급면적']}`;
+      document.getElementById('badgeGapInvest').textContent = data['is_gap_investment'] ? data['실투자금(갭)'] : '실거주 매물';
+      document.getElementById('badgeRoom').textContent = `${data['평형타입']} (${data['방수/욕실수']})`;
+      document.getElementById('badgeMoveIn').textContent = data['입주가능일'] || '즉시입주';
+
+      // 매물 상세 제원표
+      document.getElementById('specArticleNo').textContent = `No. ${data['매물번호']}`;
+      document.getElementById('tblSpace').textContent = `${data['공급면적']} / ${data['전용면적']}`;
+      document.getElementById('tblType').textContent = `${data['전용률']} (${data['평형타입']})`;
+      document.getElementById('tblFloor').textContent = `${data['해당동']} / ${data['해당층']}`;
+      document.getElementById('tblDirection').textContent = `${data['방향']} / ${data['현관구조']}`;
+      document.getElementById('tblRoomCount').textContent = data['방수/욕실수'];
+      document.getElementById('tblHeat').textContent = data['난방방식'];
+      document.getElementById('tblFeature').textContent = data['매물특징'] || '양호';
+      document.getElementById('tblConfirmDate').textContent = data['확인일자'] || '-';
+
+      // 단지 제원표
+      document.getElementById('tblTotalHouseholds').textContent = data['총세대수'];
+      document.getElementById('tblApproveDate').textContent = data['준공년월'];
+      document.getElementById('tblParking').textContent = data['주차대수'];
+      document.getElementById('tblBuilder').textContent = data['시공사'];
+      document.getElementById('tblSchool').textContent = data['배정초등학교'];
+      document.getElementById('tblPyeongRatio').textContent = data['세대구성비율'];
+
+      // 권리 분석
+      const rights = data['권리분석'] || {};
+      document.getElementById('rightsOwnership').textContent = rights.ownership_status || '정상';
+      document.getElementById('rightsMortgage').textContent = rights.mortgage_check || '정상';
+      document.getElementById('rightsLease').textContent = rights.lease_risk || '정상';
+
+      const checklistEl = document.getElementById('rightsChecklist');
+      checklistEl.innerHTML = '';
+      (rights.checklist || []).forEach(item => {
+        const li = document.createElement('li');
+        li.className = 'flex items-start gap-1.5';
+        li.innerHTML = `
+          <span class="text-brand-600 font-bold">✔</span>
+          <span><strong>${item.item}:</strong> ${item.desc}</span>
+        `;
+        checklistEl.appendChild(li);
+      });
+
+      // 입지 및 인프라
+      const infra = data['입지인프라'] || {};
+      document.getElementById('infraSchoolTitle').textContent = infra.school?.title || '학군 정보';
+      document.getElementById('infraSchoolDesc').textContent = infra.school?.desc || '-';
+
+      document.getElementById('infraTrafficTitle').textContent = infra.traffic?.title || '교통 정보';
+      document.getElementById('infraTrafficDesc').textContent = `${infra.traffic?.subway || ''} · ${infra.traffic?.bus || ''}`;
+
+      document.getElementById('infraMarketTitle').textContent = infra.convenience?.title || '생활 편의';
+      document.getElementById('infraMarketDesc').textContent = `${infra.convenience?.market || ''} · ${infra.convenience?.park || ''}`;
+
+      // 3대 개발 호재
+      const devContainer = document.getElementById('devProjectsContainer');
+      devContainer.innerHTML = '';
+      (infra.development || []).forEach((dev, idx) => {
+        const card = document.createElement('div');
+        card.className = 'bg-white p-3.5 rounded-lg border border-brand-100 shadow-2xs';
+        card.innerHTML = `
+          <div class="text-xs font-bold text-brand-800 mb-1">0${idx+1}. ${dev.title}</div>
+          <p class="text-xs text-slate-600 leading-relaxed">${dev.desc}</p>
+        `;
+        devContainer.appendChild(card);
+      });
+
+      // 추천 포인트 4선
+      const recContainer = document.getElementById('recommendList');
+      recContainer.innerHTML = '';
+      (data['추천포인트'] || []).forEach(point => {
+        const li = document.createElement('li');
+        li.className = 'flex items-start gap-2';
+        li.innerHTML = `
+          <span class="text-emerald-600 font-bold shrink-0">✔</span>
+          <span>${point}</span>
+        `;
+        recContainer.appendChild(li);
+      });
+    }
+
+    // 카카오톡/문자 고객 전송용 요약 복사
+    function copyKakaoSummary(data) {
+      const isGap = data.is_gap_investment;
+      const text = `[🏢 VIP 매물 브리핑 안내]
+■ 단지명: ${data['단지명']} ${data['해당동']}
+■ 가격: ${data['거래유형']} ${data['희망가격']} (${data['평당가격']})
+■ 면적: 전용 ${data['전용면적']} / 공급 ${data['공급면적']} (${data['평형타입']})
+■ 층/향: ${data['해당층']} / ${data['방향']}
+■ 입주형태: ${isGap ? '전세승계 실투자금 ' + data['실투자금(갭)'] : data['입주가능일'] + ' (실거주 강추)'}
+■ 핵심특징: ${data['매물특징']}
+■ 인프라: ${data['배정초등학교']} 도보 2분(초품아) / 트레이더스·롯데마트 5분 / 시민공원 숲세권
+
+★ 상세 권리분석 및 현장 안내:
+${data['중개사정보']?.name || '참좋은 공인중개사사무소'} (☎ ${data['중개사정보']?.tel || '051-911-8249'})
+"${data['중개사정보']?.slogan || '사장님의 내일을 짓다'}"`;
+
+      navigator.clipboard.writeText(text).then(() => {
+        showToast("고객 전송용 브리핑 요약이 클립보드에 복사되었습니다!");
+      }).catch(() => {
+        showToast("클립보드 복사 권한을 확인해 주세요.");
+      });
+    }
+
+    function showToast(msg) {
+      toastMessage.textContent = msg;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 2500);
+    }
+  </script>
+</body>
+</html>

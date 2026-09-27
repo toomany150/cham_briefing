@@ -1,0 +1,7 @@
+Flask
+requests
+httpx
+python-pptx
+openpyxl
+beautifulsoup4
+pandas
