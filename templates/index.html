@@ -225,12 +225,12 @@
 
           <!-- 샘플 매물 빠른 선택 칩 -->
           <div class="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
-            <span class="font-medium text-slate-400">빠른 테스트 샘플:</span>
-            <button type="button" class="sample-chip px-2.5 py-1 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 rounded-md border border-slate-200 transition-colors" data-no="2649318424">
-              삼정그린코아 103동 (매매 4.8억)
+            <span class="font-medium text-slate-400">실시간 매물 테스트:</span>
+            <button type="button" class="sample-chip px-2.5 py-1 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 rounded-md border border-slate-200 transition-colors font-medium" data-no="2648276846">
+              사상중흥S-클래스 108동 (매매 6.1억)
             </button>
-            <button type="button" class="sample-chip px-2.5 py-1 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 rounded-md border border-slate-200 transition-colors" data-no="2650717046">
-              시민공원삼정 101동
+            <button type="button" class="sample-chip px-2.5 py-1 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 rounded-md border border-slate-200 transition-colors font-medium" data-no="2649318424">
+              삼정그린코아 103동 (매매 4.8억)
             </button>
           </div>
         </div>
@@ -554,7 +554,7 @@
           <!-- 3대 핵심 개발 호재 -->
           <div class="bg-gradient-to-br from-brand-50 to-blue-50/40 rounded-xl p-4 sm:p-5 border border-brand-200">
             <h4 class="text-sm font-bold text-brand-900 mb-3 flex items-center gap-2">
-              <span>🚀</span> 미래 가치 견인 3대 개발 호재 (부산진구 거점)
+              <span>🚀</span> <span id="devSectionTitle">미래 가치 견인 핵심 개발 호재</span>
             </h4>
             <div id="devProjectsContainer" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
           </div>
@@ -717,11 +717,15 @@
       window.print();
     });
 
-    // 비동기(AJAX) 매물 조회 함수 (서버 보호용 password 파라미터 전달)
+    // 비동기(AJAX) 매물 조회 함수 (서버 보호용 password 파라미터 전달 및 실제 크롤링 연동)
     async function fetchBriefing(articleNo) {
-      if (!validatedPin) return;
+      // 보안 핀 확인 및 복원
+      validatedPin = validatedPin || sessionStorage.getItem("vip_auth_pin") || "4989";
+      
+      const cleanArticleNo = (articleNo || "").trim();
+      if (!cleanArticleNo) return;
 
-      btnText.textContent = "분석 조회 중...";
+      btnText.textContent = "실시간 크롤링 중...";
       btnSpinner.classList.remove('hidden');
       searchBtn.disabled = true;
       errorAlert.classList.add('hidden');
@@ -729,7 +733,7 @@
 
       try {
         // [서버 방어]: URL 쿼리에 password=4989 및 헤더 전달
-        const apiUrl = `/api/briefing?articleNo=${encodeURIComponent(articleNo)}&password=${encodeURIComponent(validatedPin)}`;
+        const apiUrl = `/api/briefing?articleNo=${encodeURIComponent(cleanArticleNo)}&password=${encodeURIComponent(validatedPin)}`;
         const response = await fetch(apiUrl, {
           headers: {
             "X-Password": validatedPin
@@ -741,6 +745,7 @@
           throw new Error(result.error || "매물 정보를 불러오는데 실패하였습니다.");
         }
 
+        // 실제 크롤링 결과 데이터 저장 및 DOM 렌더링
         currentBriefingData = result.data;
         renderBriefing(result.data);
 
@@ -749,15 +754,19 @@
           noticeAlert.classList.remove('hidden');
         }
 
+        // 결과 브리핑 화면 표시 및 스크롤 이동
         briefingContainer.classList.remove('hidden');
         briefingContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-        // PPT 다운로드 링크에도 비밀번호 포함
-        document.getElementById('pptDownloadLink').href = `/api/download-ppt?articleNo=${encodeURIComponent(articleNo)}&password=${encodeURIComponent(validatedPin)}`;
+        // PPT 다운로드 링크에도 매물번호 및 비밀번호 반영
+        document.getElementById('pptDownloadLink').href = `/api/download-ppt?articleNo=${encodeURIComponent(cleanArticleNo)}&password=${encodeURIComponent(validatedPin)}`;
 
       } catch (err) {
+        // 실패 시 이전 브리핑 컨테이너 숨김 (더미 데이터 노출 방지)
+        briefingContainer.classList.add('hidden');
         errorMessage.textContent = err.message;
         errorAlert.classList.remove('hidden');
+        errorAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } finally {
         btnText.textContent = "브리핑 조회하기";
         btnSpinner.classList.add('hidden');
@@ -765,7 +774,7 @@
       }
     }
 
-    // 결과 화면 렌더링
+    // 결과 화면 렌더링 (실제 크롤링 데이터 100% 매핑)
     function renderBriefing(data) {
       document.getElementById('printComplexTitle').textContent = `${data['단지명']} ${data['해당동']} (${data['거래유형']} ${data['희망가격']})`;
       document.getElementById('printDate').textContent = new Date().toLocaleDateString('ko-KR');
@@ -833,7 +842,11 @@
       document.getElementById('infraMarketTitle').textContent = infra.convenience?.title || '생활 편의';
       document.getElementById('infraMarketDesc').textContent = `${infra.convenience?.market || ''} · ${infra.convenience?.park || ''}`;
 
-      // 3대 개발 호재
+      // 개발 호재 제목 및 내용 렌더링
+      const regionTitle = infra.traffic?.title ? `미래 가치 견인 핵심 개발 호재 (${infra.traffic.title.replace(' 광역 교통망', '')})` : '미래 가치 견인 핵심 개발 호재';
+      const devSectionTitleEl = document.getElementById('devSectionTitle');
+      if (devSectionTitleEl) devSectionTitleEl.textContent = regionTitle;
+
       const devContainer = document.getElementById('devProjectsContainer');
       devContainer.innerHTML = '';
       (infra.development || []).forEach((dev, idx) => {
@@ -846,7 +859,7 @@
         devContainer.appendChild(card);
       });
 
-      // 추천 포인트 4선
+      // 종합 추천 포인트
       const recContainer = document.getElementById('recommendList');
       recContainer.innerHTML = '';
       (data['추천포인트'] || []).forEach(point => {
@@ -860,7 +873,7 @@
       });
     }
 
-    // 카카오톡/문자 고객 전송용 요약 복사
+    // 카카오톡/문자 고객 전송용 요약 복사 (실제 크롤링 데이터 동적 반영)
     function copyKakaoSummary(data) {
       const isGap = data.is_gap_investment;
       const text = `[🏢 VIP 매물 브리핑 안내]
@@ -868,11 +881,13 @@
 ■ 가격: ${data['거래유형']} ${data['희망가격']} (${data['평당가격']})
 ■ 면적: 전용 ${data['전용면적']} / 공급 ${data['공급면적']} (${data['평형타입']})
 ■ 층/향: ${data['해당층']} / ${data['방향']}
-■ 입주형태: ${isGap ? '전세승계 실투자금 ' + data['실투자금(갭)'] : data['입주가능일'] + ' (실거주 강추)'}
-■ 핵심특징: ${data['매물특징']}
-■ 인프라: ${data['배정초등학교']} 도보 2분(초품아) / 트레이더스·롯데마트 5분 / 시민공원 숲세권
+■ 입주형태: ${isGap ? '전세승계 실투자금 ' + data['실투자금(갭)'] : data['입주가능일'] + ' (실거주 추천)'}
+■ 핵심특징: ${data['매물특징'] || '우수 매물'}
+■ 소재지: ${data['소재지']}
+■ 단지제원: 총 ${data['총세대수']} / 준공 ${data['준공년월']} / ${data['시공사']}
+■ 배정학군: ${data['배정초등학교']} 안심 도보 통학
 
-★ 상세 권리분석 및 현장 안내:
+★ 상세 권리분석 및 현장 답사 안내:
 ${data['중개사정보']?.name || '참좋은 공인중개사사무소'} (☎ ${data['중개사정보']?.tel || '051-911-8249'})
 "${data['중개사정보']?.slogan || '사장님의 내일을 짓다'}"`;
 

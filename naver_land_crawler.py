@@ -623,7 +623,12 @@ class NaverLandCrawler:
                 res = self.client.client.get(api_url, headers=headers, cookies=self.client.cookies)
 
             if res.status_code == 200:
-                return res.json()
+                data = res.json()
+                if not data or "error" in data or "articleDetail" not in data:
+                    err_msg = data.get("error", {}).get("message", "매물 정보가 존재하지 않습니다.") if isinstance(data, dict) else "매물 정보 없음"
+                    print(f"[네이버 응답] 매물 {article_no}: {err_msg}")
+                    return None
+                return data
         except Exception as e:
             print(f"[오류] 매물 {article_no} 조회 실패: {e}")
         return None
@@ -719,11 +724,11 @@ class NaverLandCrawler:
         if len(use_ymd) == 8:
             use_ymd = f"{use_ymd[:4]}.{use_ymd[4:6]}.{use_ymd[6:]}"
 
-        school_str = ", ".join([s.get("schoolName", "") for s in schools]) if schools else cd.get("schoolAllocationMessage", "부암초등학교")
+        school_str = ", ".join([s.get("schoolName", "") for s in schools if s.get("schoolName")]) if schools else (cd.get("schoolAllocationMessage") or "단지 배정 초등학교")
 
         road_addr = f"{cd.get('roadAddressPrefix', '')} {cd.get('roadAddress', '')}".strip()
         if not road_addr:
-            road_addr = ad.get("exposureAddress", "부산광역시 부산진구 부암동")
+            road_addr = ad.get("exposureAddress") or ad.get("detailAddress") or "소재지 정보 확인 중"
 
         heat_map = {'HT001': '개별난방', 'HT002': '지역난방', 'HT003': '중앙난방'}
         fuel_map = {'HF001': '도시가스', 'HF002': '기름', 'HF003': '전기', 'HF004': '심야전기'}
@@ -764,11 +769,15 @@ class NaverLandCrawler:
 
         py_comp_summary = " / ".join(py_comp_items) if py_comp_items else "23평 240세대(53.3%) / 27평 60세대(13.3%) / 32평 150세대(33.3%)"
 
+        c_name = cd.get("complexName") or ad.get("articleName") or ad.get("aptName") or "해당 아파트 매물"
+        b_builder = cd.get("constructionCompanyName") or ad.get("constructionCompanyName") or "시공사 확인 중"
+        b_ymd = use_ymd or ad.get("aptUseApproveYmd") or "-"
+
         return {
             "매물번호": article_no,
-            "단지명": cd.get("complexName") or ad.get("aptName") or "시민공원삼정그린코아더베스트(주상복합)",
+            "단지명": c_name,
             "소재지": road_addr,
-            "해당동": ad.get("buildingName", "101동"),
+            "해당동": ad.get("buildingName", "-"),
             "해당층": floor_str,
             "방향": f"{af.get('directionTypeName', '-')} ({af.get('directionBaseTypeName', '거실 기준')})",
             "거래유형": trade_type,
@@ -785,12 +794,12 @@ class NaverLandCrawler:
             "입주가능일": move_in or "즉시입주 가능",
             "매물특징": ad.get("articleFeatureDescription", "-"),
             "확인일자": confirm_ymd,
-            "총세대수": f"{cd.get('totalHouseholdCount', ad.get('aptHouseholdCount', '-')):,}세대 (총 {cd.get('totalDongCount', 3)}개동)" if str(cd.get('totalHouseholdCount', '')).isdigit() else f"{cd.get('totalHouseholdCount', '-')}세대",
+            "총세대수": f"{cd.get('totalHouseholdCount', ad.get('aptHouseholdCount', '-')):,}세대 (총 {cd.get('totalDongCount', '-')}개동)" if str(cd.get('totalHouseholdCount', '')).isdigit() else f"{cd.get('totalHouseholdCount', ad.get('aptHouseholdCount', '-'))}세대",
             "세대구성비율": py_comp_summary,
-            "준공년월": use_ymd or "2022.12.09",
-            "주차대수": f"총 {cd.get('parkingPossibleCount', 503):,}대 (세대당 {cd.get('parkingCountByHousehold', '1.11')}대)" if str(cd.get('parkingPossibleCount', '')).isdigit() else "총 503대 (세대당 1.11대)",
+            "준공년월": b_ymd,
+            "주차대수": f"총 {cd.get('parkingPossibleCount', '-'):,}대 (세대당 {cd.get('parkingCountByHousehold', '-')}대)" if str(cd.get('parkingPossibleCount', '')).isdigit() else (f"세대당 {cd.get('parkingCountByHousehold')}대" if cd.get('parkingCountByHousehold') else "-"),
             "난방방식": f"{heat_str} ({fuel_str})",
-            "시공사": cd.get("constructionCompanyName", "삼정건설(주)"),
+            "시공사": b_builder,
             "배정초등학교": school_str,
         }
 
