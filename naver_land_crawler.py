@@ -76,6 +76,16 @@ def extract_article_no(input_str: str) -> Optional[str]:
     if m:
         return m.group(1)
 
+def extract_complex_no(input_str: str) -> Optional[str]:
+    """사용자가 입력한 문자열에서 단지 번호(complexes/숫자) 추출"""
+    if not input_str:
+        return None
+    m = re.search(r'complexes/(\d{3,8})', input_str)
+    if m:
+        return m.group(1)
+    m = re.search(r'hscpNo=(\d{3,8})', input_str)
+    if m:
+        return m.group(1)
     return None
 
 
@@ -640,6 +650,27 @@ class NaverLandCrawler:
                 print(f"[네이버 HTTP 오류] 매물 {article_no}: 상태코드 {res.status_code}")
         except Exception as e:
             print(f"[오류] 매물 {article_no} 조회 실패: {e}")
+        return None
+
+    def get_first_article_of_complex(self, complex_no: str) -> Optional[str]:
+        """단지 번호로 소속된 대표 매물번호 1건 자동 탐색"""
+        if not self.client.cookies or not self.client.auth_token:
+            self.client.refresh_session(f"/complexes/{complex_no}")
+
+        headers = self.client.get_api_headers(f"/complexes/{complex_no}")
+        for trade in ["A1", "B1", ""]:
+            url = f"{self.client.BASE_URL}/api/articles/complex/{complex_no}?realEstateType=APT"
+            if trade:
+                url += f"&tradeType={trade}"
+            try:
+                res = self.client.client.get(url, headers=headers, cookies=self.client.cookies)
+                if res.status_code == 200:
+                    data = res.json()
+                    articles = data.get("articleList", [])
+                    if articles:
+                        return str(articles[0].get("articleNo", ""))
+            except Exception:
+                pass
         return None
 
     def get_complex_data(self) -> Dict[str, Any]:

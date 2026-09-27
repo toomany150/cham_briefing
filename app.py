@@ -31,6 +31,7 @@ SECURITY_PIN = "4989"
 from naver_land_crawler import (
     NaverLandCrawler,
     extract_article_no,
+    extract_complex_no,
     REALTOR_INFO,
 )
 
@@ -141,26 +142,6 @@ def index():
     return render_template("index.html", realtor=REALTOR_INFO)
 
 
-@app.route("/api/diag")
-def diag():
-    import httpx, time
-    res = {}
-    endpoints = [
-        ("new_land", "https://new.land.naver.com/"),
-        ("m_land", "https://m.land.naver.com/"),
-        ("fin_land", "https://fin.land.naver.com/"),
-        ("naver_com", "https://www.naver.com/"),
-    ]
-    for name, url in endpoints:
-        t0 = time.time()
-        try:
-            r = httpx.get(url, timeout=3.0, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True)
-            res[name] = {"status": r.status_code, "time": round(time.time() - t0, 2)}
-        except Exception as e:
-            res[name] = {"error": str(type(e).__name__), "time": round(time.time() - t0, 2)}
-    return jsonify(res)
-
-
 # ==============================================================================
 # [라우트 2: 비동기(AJAX) 매물 브리핑 JSON API - 100% 실제 크롤링 데이터 반환]
 # 예시/더미 데이터 일체 배제, 사용자가 입력한 매물번호를 네이버 부동산에서 직접 수집
@@ -175,19 +156,38 @@ def api_briefing():
             "error": "보안 인증 실패: 비밀번호(4989)가 일치하지 않거나 누락되었습니다."
         }), 401
 
-    # 2. 매물번호 파라미터 확인 및 추출
+    # 2. 매물번호 또는 단지주소 파라미터 확인 및 추출
     raw_input = request.args.get("articleNo", "").strip()
     if not raw_input:
         return jsonify({
             "success": False,
-            "error": "매물번호를 입력해 주세요."
+            "error": "매물번호 또는 네이버 부동산 URL을 입력해 주세요."
         }), 400
 
-    article_no = extract_article_no(raw_input) or raw_input.strip()
+    article_no = extract_article_no(raw_input)
+    complex_no = extract_complex_no(raw_input)
+    notice_msg = None
+
+    crawler = NaverLandCrawler()
+
+    # 만약 개별 매물번호가 없고 단지 URL(complexes/...)만 입력된 경우 해당 단지의 최신 매물 자동 연동
+    if not article_no and complex_no:
+        print(f"[단지 URL 입력 감지] 단지번호: {complex_no}")
+        found_article = crawler.get_first_article_of_complex(complex_no)
+        if found_article:
+            article_no = found_article
+            notice_msg = f"단지 주소(단지번호: {complex_no})를 입력하여, 해당 단지의 최신 대표 매물(No. {article_no})로 브리핑을 생성했습니다."
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"단지번호 [{complex_no}]에서 현재 등록된 진행 중인 매물을 찾을 수 없습니다."
+            }), 404
+
+    if not article_no:
+        article_no = raw_input.strip()
 
     # 3. 네이버 부동산 실시간 크롤링 실행
     try:
-        crawler = NaverLandCrawler()
         art_data = crawler.get_article_detail(article_no)
 
         if not art_data:
@@ -198,7 +198,7 @@ def api_briefing():
 
         # 소속 단지 제원 및 배정 학군 연동
         detail = art_data.get("articleDetail", {})
-        hscp_no = str(detail.get("hscpNo", "")).strip()
+        hscp_no = str(detail.get("hscpNo", "")).strip() or (complex_no or "")
         if hscp_no and hscp_no != "0":
             crawler.complex_no = hscp_no
             comp_data = crawler.get_complex_data()
@@ -215,7 +215,8 @@ def api_briefing():
         return jsonify({
             "success": True,
             "data": enriched,
-            "source": "naver_live"
+            "source": "naver_live",
+            "notice": notice_msg
         })
 
     except Exception as err:
