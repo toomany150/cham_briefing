@@ -109,26 +109,32 @@ class NaverLandClient:
         self.client = httpx.Client(http2=False, timeout=self.timeout)
 
     def refresh_session(self, target_path: str = "") -> bool:
-        """세션 쿠키 및 Bearer 토큰 획득"""
-        url = f"{self.BASE_URL}{target_path}" if target_path else self.BASE_URL
-        try:
-            res = self.client.get(url, headers=self.browser_headers, follow_redirects=True)
-            if res.status_code != 200:
-                res = self.client.get(self.BASE_URL, headers=self.browser_headers, follow_redirects=True)
+        """세션 쿠키 및 Bearer 토큰 획득 (반드시 토큰이 있는 엔드포인트 탐색)"""
+        candidates = []
+        if target_path and not target_path.startswith("/articles/"):
+            candidates.append(f"{self.BASE_URL}{target_path}")
+        candidates.extend([
+            f"{self.BASE_URL}/complexes/127918",
+            f"{self.BASE_URL}/complexes",
+            self.BASE_URL
+        ])
 
-            self.cookies.update(dict(res.cookies))
-
-            token_match = re.search(r'"token":\{"token":"([^"]+)"\}', res.text)
-            if token_match:
-                self.auth_token = token_match.group(1)
-            else:
-                alt_match = re.search(r'Bearer\s+([a-zA-Z0-9_\-\.]+)', res.text)
-                if alt_match:
-                    self.auth_token = alt_match.group(1)
-            return True
-        except Exception as e:
-            print(f"[경고] 세션 연결 중 예외: {e}")
-            return False
+        for url in candidates:
+            try:
+                res = self.client.get(url, headers=self.browser_headers, follow_redirects=True)
+                if res.status_code == 200:
+                    self.cookies.update(dict(res.cookies))
+                    token_match = re.search(r'"token":\{"token":"([^"]+)"\}', res.text)
+                    if token_match:
+                        self.auth_token = token_match.group(1)
+                        return True
+                    alt_match = re.search(r'Bearer\s+([a-zA-Z0-9_\-\.]+)', res.text)
+                    if alt_match:
+                        self.auth_token = alt_match.group(1)
+                        return True
+            except Exception as e:
+                pass
+        return False
 
     def get_api_headers(self, referer_path: str = "") -> Dict[str, str]:
         """API 요청 전용 헤더"""
@@ -610,7 +616,7 @@ class NaverLandCrawler:
     def get_article_detail(self, article_no: str) -> Optional[Dict[str, Any]]:
         """매물 단건 상세 정보 조회"""
         if not self.client.cookies or not self.client.auth_token:
-            self.client.refresh_session(f"/complexes/{self.complex_no}")
+            self.client.refresh_session("/complexes/127918")
 
         api_url = f"{self.client.BASE_URL}/api/articles/{article_no}"
         headers = self.client.get_api_headers(f"/articles/{article_no}")
@@ -618,9 +624,10 @@ class NaverLandCrawler:
         try:
             res = self.client.client.get(api_url, headers=headers, cookies=self.client.cookies)
             if res.status_code in (401, 403, 429):
-                self.client.refresh_session(f"/articles/{article_no}")
-                headers = self.client.get_api_headers(f"/articles/{article_no}")
-                res = self.client.client.get(api_url, headers=headers, cookies=self.client.cookies)
+                # 401/403/429 시 /articles/가 아닌 토큰 보유 경로(/complexes/127918)로 세션 재발급 후 재시도
+                if self.client.refresh_session("/complexes/127918"):
+                    headers = self.client.get_api_headers(f"/articles/{article_no}")
+                    res = self.client.client.get(api_url, headers=headers, cookies=self.client.cookies)
 
             if res.status_code == 200:
                 data = res.json()
@@ -629,6 +636,8 @@ class NaverLandCrawler:
                     print(f"[네이버 응답] 매물 {article_no}: {err_msg}")
                     return None
                 return data
+            else:
+                print(f"[네이버 HTTP 오류] 매물 {article_no}: 상태코드 {res.status_code}")
         except Exception as e:
             print(f"[오류] 매물 {article_no} 조회 실패: {e}")
         return None

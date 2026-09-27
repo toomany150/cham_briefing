@@ -222,17 +222,6 @@
               </svg>
             </button>
           </form>
-
-          <!-- 샘플 매물 빠른 선택 칩 -->
-          <div class="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
-            <span class="font-medium text-slate-400">실시간 매물 테스트:</span>
-            <button type="button" class="sample-chip px-2.5 py-1 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 rounded-md border border-slate-200 transition-colors font-medium" data-no="2648276846">
-              사상중흥S-클래스 108동 (매매 6.1억)
-            </button>
-            <button type="button" class="sample-chip px-2.5 py-1 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 rounded-md border border-slate-200 transition-colors font-medium" data-no="2649318424">
-              삼정그린코아 103동 (매매 4.8억)
-            </button>
-          </div>
         </div>
       </section>
 
@@ -695,15 +684,6 @@
       const articleNo = articleInput.value.trim();
       if (!articleNo) return;
       await fetchBriefing(articleNo);
-    });
-
-    // 빠른 샘플 칩 클릭
-    document.querySelectorAll('.sample-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        const no = chip.getAttribute('data-no');
-        articleInput.value = no;
-        fetchBriefing(no);
-      });
     });
 
     // 카카오톡 요약 복사
