@@ -141,6 +141,26 @@ def index():
     return render_template("index.html", realtor=REALTOR_INFO)
 
 
+@app.route("/api/diag")
+def diag():
+    import httpx, time
+    res = {}
+    endpoints = [
+        ("new_land", "https://new.land.naver.com/"),
+        ("m_land", "https://m.land.naver.com/"),
+        ("fin_land", "https://fin.land.naver.com/"),
+        ("naver_com", "https://www.naver.com/"),
+    ]
+    for name, url in endpoints:
+        t0 = time.time()
+        try:
+            r = httpx.get(url, timeout=3.0, headers={"User-Agent": "Mozilla/5.0"}, follow_redirects=True)
+            res[name] = {"status": r.status_code, "time": round(time.time() - t0, 2)}
+        except Exception as e:
+            res[name] = {"error": str(type(e).__name__), "time": round(time.time() - t0, 2)}
+    return jsonify(res)
+
+
 # ==============================================================================
 # [라우트 2: 비동기(AJAX) 매물 브리핑 JSON API - 100% 실제 크롤링 데이터 반환]
 # 예시/더미 데이터 일체 배제, 사용자가 입력한 매물번호를 네이버 부동산에서 직접 수집
