@@ -22,11 +22,18 @@
 import sys
 import os
 import re
+import json
 import datetime
 import argparse
 from typing import Dict, Any, Optional
 
+try:
+    import requests
+except ImportError:
+    requests = None
+
 import httpx
+
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
@@ -89,6 +96,303 @@ def extract_complex_no(input_str: str) -> Optional[str]:
     return None
 
 
+# ==============================================================================
+# 모바일 네이버 부동산 요청 헤더 및 위장 설정 (아이폰 최신 모바일 사파리 위장)
+# ==============================================================================
+IPHONE_USER_AGENT = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1"
+)
+
+IPHONE_HEADERS = {
+    "User-Agent": IPHONE_USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://m.land.naver.com/",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+}
+
+
+def extract_json_object(s: str, start_pos: int = 0) -> Optional[Dict[str, Any]]:
+    """start_pos 위치 이후의 { 부터 대응되는 } 까지의 JSON 객체 파싱"""
+    idx = s.find('{', start_pos)
+    if idx == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(idx, len(s)):
+        ch = s[i]
+        if escape:
+            escape = False
+            continue
+        if ch == '\\':
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if not in_string:
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    json_str = s[idx:i+1]
+                    try:
+                        return json.loads(json_str)
+                    except Exception:
+                        return None
+    return None
+
+
+def format_krw(amount: int) -> str:
+    """원 단위 금액을 한국어 억/만원 단위 문자열로 변환"""
+    if not amount or amount <= 0:
+        return "0원"
+    eok = amount // 100_000_000
+    man = (amount % 100_000_000) // 10_000
+    if eok > 0 and man > 0:
+        return f"{eok}억 {man:,}만원"
+    elif eok > 0:
+        return f"{eok}억원"
+    else:
+        return f"{man:,}만원"
+
+
+def fetch_article_from_mobile(article_no: str) -> Optional[Dict[str, Any]]:
+    """네이버 부동산 모바일 웹(m.land.naver.com) SSR 데이터 추출 및 브리핑 정제 (차단 우회)"""
+    candidate_urls = [
+        f"https://m.land.naver.com/article/info/{article_no}",
+        f"https://fin.land.naver.com/articles/{article_no}",
+    ]
+
+    text = ""
+    for url in candidate_urls:
+        try:
+            with httpx.Client(headers=IPHONE_HEADERS, timeout=12.0, follow_redirects=True) as client:
+                res = client.get(url)
+                if res.status_code == 200 and len(res.text) > 1000:
+                    text = res.text
+                    break
+        except Exception as e:
+            if requests:
+                try:
+                    res = requests.get(url, headers=IPHONE_HEADERS, timeout=12)
+                    if res.status_code == 200 and len(res.text) > 1000:
+                        text = res.text
+                        break
+                except Exception:
+                    pass
+            print(f"[모바일 접속 오류] {url}: {e}")
+
+    if not text:
+        return None
+
+    # 1. 매물 기본 제원 (articleDetailInfo) 추출
+    article_basic = None
+    pos = text.find('articleDetailInfo')
+    if pos != -1:
+        target = '\\"result\\":{'
+        res_idx = text.rfind(target, 0, pos)
+        if res_idx != -1:
+            raw = text[res_idx + len(target) - 1 : res_idx + 10000]
+            unesc = raw.replace('\\"', '"').replace('\\\\', '\\')
+            article_basic = extract_json_object(unesc, 0)
+
+    if not article_basic:
+        return None
+
+    # 2. 단지 및 도로명주소 정보 추출
+    complex_basic = {}
+    road_pos = text.find('\\"roadName\\"')
+    if road_pos != -1:
+        target = '\\"result\\":{'
+        res_idx = text.rfind(target, 0, road_pos)
+        if res_idx != -1:
+            raw = text[res_idx + len(target) - 1 : res_idx + 10000]
+            unesc = raw.replace('\\"', '"').replace('\\\\', '\\')
+            complex_basic = extract_json_object(unesc, 0) or {}
+
+    # 3. 거래 유형(tradeType) 추출
+    trade_type = "매매"
+    trade_match = re.search(r'\\"tradeType\\":\\"([A-Z0-9]+)\\"', text)
+    if trade_match:
+        code = trade_match.group(1)
+        trade_map = {"A1": "매매", "B1": "전세", "B2": "월세", "B3": "단기임대"}
+        trade_type = trade_map.get(code, "매매")
+
+    price_info = article_basic.get("priceInfo", {})
+    detail_info = article_basic.get("detailInfo", {})
+    art_detail = detail_info.get("articleDetailInfo", {})
+    space_info = detail_info.get("spaceInfo", {})
+    size_info = detail_info.get("sizeInfo", {})
+    facility_info = detail_info.get("facilityInfo", {})
+    moving_info = detail_info.get("movingInInfo", {})
+    veri_info = detail_info.get("verificationInfo", {})
+    communal_info = article_basic.get("communalComplexInfo", {})
+
+    price = price_info.get("price", 0)
+    prev_deposit = price_info.get("previousDeposit", 0)
+    monthly_rent = price_info.get("previousMonthlyRent", 0)
+
+    if trade_type == "매매":
+        price_str = format_krw(price)
+    elif trade_type == "전세":
+        price_str = format_krw(price)
+    else:
+        price_str = f"보증금 {format_krw(price)} / 월세 {format_krw(monthly_rent)}"
+
+    is_gap = (trade_type == "매매" and prev_deposit > 0)
+    gap_str = "-"
+    if is_gap:
+        gap = price - prev_deposit
+        gap_str = f"{format_krw(gap)} (기존 전세 {format_krw(prev_deposit)} 승계)"
+
+    supply_m2 = size_info.get("supplySpace", 0)
+    exclusive_m2 = size_info.get("exclusiveSpace", 0)
+    supply_pyeong = round(supply_m2 / 3.30578, 1) if supply_m2 else "-"
+    exclusive_pyeong = round(exclusive_m2 / 3.30578, 1) if exclusive_m2 else "-"
+    exclusive_rate = round(exclusive_m2 / supply_m2 * 100, 1) if (supply_m2 and exclusive_m2) else "-"
+
+    py_price_str = "-"
+    if trade_type == "매매" and price > 0 and supply_pyeong and supply_pyeong != "-":
+        try:
+            calc_py = int((price // 10000) / float(supply_pyeong))
+            py_price_str = f"평당 약 {calc_py:,}만원"
+        except Exception:
+            pass
+
+    floor_info = space_info.get("floorInfo", {})
+    t_floor = floor_info.get("targetFloor", "-")
+    total_f = floor_info.get("totalFloor", "-")
+    floor_str = f"{t_floor}층 / 총 {total_f}층"
+
+    dir_map = {'EE': '동향', 'WW': '서향', 'SS': '남향', 'NN': '북향', 'SE': '남동향', 'SW': '남서향', 'NE': '북동향', 'NW': '북서향'}
+    dir_name = dir_map.get(space_info.get("direction", ""), space_info.get("direction", "-"))
+    dir_std = space_info.get("directionStandard", "거실 기준")
+
+    c_name = communal_info.get("complexName") or complex_basic.get("name") or art_detail.get("articleName") or "해당 아파트 매물"
+    dong_name = communal_info.get("dongName")
+    dong_str = f"{dong_name}동" if dong_name and not str(dong_name).endswith("동") else (dong_name or "-")
+
+    c_addr = complex_basic.get("address", {})
+    city = c_addr.get("city", "")
+    division = c_addr.get("division", "")
+    sector = c_addr.get("sector", "")
+    road_name = c_addr.get("roadName", "")
+    jibun = c_addr.get("jibun", "")
+    if road_name:
+        road_addr = f"{city} {division} {road_name}".strip()
+    elif sector and jibun:
+        road_addr = f"{city} {division} {sector} {jibun}".strip()
+    else:
+        road_addr = f"{city} {division}".strip() or "소재지 정보 확인 중"
+
+    entrance_map = {"10": "계단식", "20": "복도식", "30": "복합식"}
+    entrance_str = entrance_map.get(facility_info.get("entranceType", ""), "계단식")
+
+    move_map = {"MV001": "즉시입주", "MV002": "입주일협의", "MV003": "날짜지정"}
+    move_type = move_map.get(moving_info.get("movingInType", ""), "즉시입주")
+    if moving_info.get("movingInNegotiation"):
+        move_str = f"{move_type} (협의가능)"
+    else:
+        move_str = move_type
+
+    confirm_ymd = str(veri_info.get("articleConfirmDate", "-"))
+    if "-" in confirm_ymd:
+        confirm_ymd = confirm_ymd.replace("-", ".")
+
+    ptp_name = size_info.get("supplySpaceName", "")
+    if ptp_name and not str(ptp_name).endswith("타입"):
+        ptp_name = f"{ptp_name}타입"
+    elif not ptp_name:
+        ptp_name = f"{exclusive_pyeong}평형"
+
+    total_hh = complex_basic.get("totalHouseholdNumber") or facility_info.get("totalHouseholdCount", "-")
+    dong_cnt = complex_basic.get("dongCount", "-")
+    hh_str = f"{int(total_hh):,}세대 (총 {dong_cnt}개동)" if str(total_hh).isdigit() else f"{total_hh}세대"
+
+    use_date = str(complex_basic.get("useApprovalDate", "-"))
+    if len(use_date) == 8 and use_date.isdigit():
+        use_date = f"{use_date[:4]}.{use_date[4:6]}.{use_date[6:]}"
+
+    parking_info = complex_basic.get("parkingInfo", {})
+    total_p = parking_info.get("totalParkingCount") or facility_info.get("totalParkingCount", "-")
+    per_hh = parking_info.get("parkingCountPerHousehold") or facility_info.get("parkingCountPerHousehold", "-")
+    parking_str = f"총 {int(total_p):,}대 (세대당 {per_hh}대)" if str(total_p).isdigit() else f"세대당 {per_hh}대"
+
+    heat_info = complex_basic.get("heatingAndCoolingInfo", {})
+    heat_map = {'HT001': '개별난방', 'HT002': '지역난방', 'HT003': '중앙난방'}
+    fuel_map = {'HF001': '도시가스', 'HF002': '기름', 'HF003': '전기', 'HF004': '심야전기'}
+    heat_str = heat_map.get(heat_info.get("heatingAndCoolingSystemType", "HT001"), "개별난방")
+    fuel_str = fuel_map.get(heat_info.get("heatingEnergyType", "HF001"), "도시가스")
+
+    builder = complex_basic.get("constructionCompany", "시공사 확인 중")
+
+    desc = art_detail.get("articleDescription", "")
+    school_match = re.search(r'([가-힣]{2,6}초(?:등학교)?)', desc)
+    if school_match:
+        school_str = school_match.group(1)
+        if not school_str.endswith("학교"):
+            school_str += "등학교"
+    elif sector:
+        school_str = f"단지 배정 {sector} 인근 초등학교"
+    else:
+        school_str = f"{c_name} 배정 초등학교"
+
+    bdata = {
+        "매물번호": article_no,
+        "단지명": c_name,
+        "소재지": road_addr,
+        "해당동": dong_str,
+        "해당층": floor_str,
+        "방향": f"{dir_name} ({dir_std})",
+        "거래유형": trade_type,
+        "희망가격": price_str,
+        "평당가격": py_price_str,
+        "is_gap_investment": is_gap,
+        "실투자금(갭)": gap_str,
+        "공급면적": f"{supply_m2}㎡ ({supply_pyeong}평)",
+        "전용면적": f"{exclusive_m2}㎡ ({exclusive_pyeong}평)",
+        "전용률": f"{exclusive_rate}%",
+        "평형타입": ptp_name,
+        "방수/욕실수": f"방 {space_info.get('roomCount', '-')}개 / 욕실 {space_info.get('bathRoomCount', '-')}개",
+        "현관구조": entrance_str,
+        "입주가능일": move_str,
+        "매물특징": art_detail.get("articleFeatureDescription", "-"),
+        "확인일자": confirm_ymd,
+        "총세대수": hh_str,
+        "세대구성비율": f"{ptp_name} 중심 단지 구성",
+        "준공년월": use_date,
+        "주차대수": parking_str,
+        "난방방식": f"{heat_str} ({fuel_str})",
+        "시공사": builder,
+        "배정초등학교": school_str,
+    }
+
+    complex_number = str(communal_info.get("complexNumber") or complex_basic.get("number") or "")
+
+    return {
+        "_source": "mobile",
+        "_bdata": bdata,
+        "articleDetail": {
+            "articleNumber": article_no,
+            "articleName": c_name,
+            "hscpNo": complex_number,
+            "buildingName": dong_str,
+        },
+        "articlePrice": {
+            "dealPrice": price // 10000 if trade_type == "매매" else 0,
+            "warrantPrice": price // 10000 if trade_type == "전세" else 0,
+        },
+        "raw_article": article_basic,
+        "raw_complex": complex_basic,
+    }
+
+
 class NaverLandClient:
     """네이버 부동산 세션 모사 및 통신 클라이언트"""
 
@@ -98,25 +402,10 @@ class NaverLandClient:
         self.timeout = timeout
         self.cookies: Dict[str, str] = {}
         self.auth_token: Optional[str] = None
-        self.user_agent = (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/133.0.0.0 Safari/537.36"
-        )
-        self.browser_headers = {
-            "user-agent": self.user_agent,
-            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "accept-language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-            "sec-ch-ua": '"Not(A:Brand";v="99", "Google Chrome";v="133", "Chromium";v="133"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
-            "sec-fetch-dest": "document",
-            "sec-fetch-mode": "navigate",
-            "sec-fetch-site": "none",
-            "sec-fetch-user": "?1",
-            "upgrade-insecure-requests": "1",
-        }
+        self.user_agent = IPHONE_USER_AGENT
+        self.browser_headers = dict(IPHONE_HEADERS)
         self.client = httpx.Client(http2=False, timeout=self.timeout)
+
 
     def refresh_session(self, target_path: str = "") -> bool:
         """세션 쿠키 및 Bearer 토큰 획득 (반드시 토큰이 있는 엔드포인트 탐색)"""
@@ -624,12 +913,21 @@ class NaverLandCrawler:
         self.complex_name: str = ""
 
     def get_article_detail(self, article_no: str) -> Optional[Dict[str, Any]]:
-        """매물 단건 상세 정보 조회"""
+        """매물 단건 상세 정보 조회 (모바일 API 최우선, PC API 폴백)"""
+        print(f"[모바일 수집 시도] 매물번호 {article_no} (아이폰 위장 헤더 적용)")
+        mobile_data = fetch_article_from_mobile(article_no)
+        if mobile_data:
+            cname = mobile_data["_bdata"].get("단지명", "")
+            print(f"[모바일 수집 성공] 매물번호 {article_no} -> {cname}")
+            return mobile_data
+
+        print(f"[PC API 폴백 시도] 매물번호 {article_no}...")
         if not self.client.cookies or not self.client.auth_token:
             self.client.refresh_session("/complexes/127918")
 
         api_url = f"{self.client.BASE_URL}/api/articles/{article_no}"
         headers = self.client.get_api_headers(f"/articles/{article_no}")
+
 
         try:
             res = self.client.client.get(api_url, headers=headers, cookies=self.client.cookies)
@@ -710,7 +1008,11 @@ class NaverLandCrawler:
 
     def parse_briefing_dict(self, article_raw: Dict[str, Any], complex_data: Dict[str, Any], article_no: str) -> Dict[str, Any]:
         """수집 데이터 정제"""
+        if article_raw.get("_bdata"):
+            return article_raw["_bdata"]
+
         ad = article_raw.get("articleDetail", {})
+
         ap = article_raw.get("articlePrice", {})
         af = article_raw.get("articleFacility", {})
         afl = article_raw.get("articleFloor", {})
